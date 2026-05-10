@@ -1,62 +1,63 @@
-# Telleqt AI — multi-view defect detection on pet food package seam
+# Telleqt AI — классификация дефектов шва на пакетиках с кормом
 
-Binary classification of package samples:
+## 1. Описание задачи
 
-- `0` = good package
-- `1` = bad / seam defect
+В рамках тестового задания необходимо было построить пайплайн, который определяет, является ли пример дефектным или хорошим.
 
-Each physical sample contains four synchronized views of the same package:
+Исходные данные:
 
-| View id | Meaning |
-|---|---|
-| `01` | front side, bar light |
-| `02` | front side, top light |
-| `03` | back side, bar light |
-| `04` | back side, top light |
+- `train.zip` — обучающий датасет с размеченными примерами;
+- `test.zip` — анонимные тестовые примеры без разметки;
+- каждый пример — это папка с 4 изображениями одного и того же пакетика;
+- дефект может быть виден:
+  - только с передней стороны;
+  - только с задней стороны;
+  - только при одном типе освещения;
+  - иногда сразу на нескольких изображениях.
 
-The defect may be visible only from one side or only under one lighting condition, therefore the main model treats the task as **multi-view sample-level classification**, not as independent single-image classification.
+В обучающем датасете примеры лежат в директориях:
 
----
+```text
+good/ — хороший пример, label = 0
+bad/  — дефектный пример, label = 1
+```
 
-## Dataset structure
+Требуемый результат — CSV-файл:
 
-Dataset inspection:
+```text
+sample_id,prediction
+1,0
+2,0
+3,1
+```
 
+где:
+
+sample_id — имя папки тестового примера;
+prediction — 0 для good, 1 для bad.
+
+## 2. Структура данных
+
+После анализа структуры датасета:
 ```text
 train:
   total samples: 755
   good: 401
   bad: 354
-  every sample has exactly 4 images
-  source groups / collection sessions: 4
 
 test:
   total samples: 241
-  every sample has exactly 4 images
-  folder name = sample_id for submission
 ```
+Каждый пример содержит ровно 4 изображения.
 
-Expected train structure:
-
+Для train изображения имеют смысловой порядок:
 ```text
-train/
-  BLTA_MCRL_2026_05_04T07_01_54_620335Z_SCP/
-    good/
-      sample_.../
-        01_...jpg
-        02_...jpg
-        03_...jpg
-        04_...jpg
-    bad/
-      sample_.../
-        01_...jpg
-        02_...jpg
-        03_...jpg
-        04_...jpg
+01 — front_barlight
+02 — front_toplight
+03 — back_barlight
+04 — back_toplight
 ```
-
-Expected test structure:
-
+Для test структура выглядит так:
 ```text
 test/
   1/
@@ -70,92 +71,102 @@ test/
     03.jpg
     04.jpg
 ```
+## 3. Основная идея решения
 
----
+Задача решалась как multi-view binary classification.
 
-## Main approach
+Один физический объект представлен четырьмя изображениями:
+```text
+front + barlight
+front + toplight
+back + barlight
+back + toplight
+```
+Так как дефект может быть виден только на одной стороне или только при одном типе света, модель обрабатывает все 4 изображения совместно.
 
-The solution uses a multi-view CNN classifier:
+Архитектура:
+```text
+4 изображения одного sample
+        ↓
+shared CNN encoder
+        ↓
+признаки каждого вида
+        ↓
+mean pooling + max pooling по видам
+        ↓
+binary classifier
+        ↓
+probability of defect
+```
+В качестве encoder используется EfficientNet-B0, предобученный на ImageNet.
 
-1. Load selected views of a sample in fixed semantic order.
-2. Pass every view through the same pretrained `EfficientNet-B0` encoder.
-3. Aggregate view embeddings with `mean pooling + max pooling`.
-4. Classify the whole physical sample, not each photo separately.
-5. Train with `BCEWithLogitsLoss` and class-balanced `pos_weight`.
-6. Evaluate with out-of-fold predictions.
-7. Select decision threshold from OOF predictions.
-8. Predict test samples with an ensemble over CV fold checkpoints.
+Такой подход лучше, чем классифицировать каждую картинку отдельно, потому что итоговое решение принимается на уровне всего примера, а не отдельного изображения.
 
-Why this design:
+## 4. Почему используется Group Cross-Validation
 
-- the dataset is small, so pretrained CNN features are useful;
-- the defect can appear in only one view, so `max pooling` helps preserve a strong defect signal from a single image;
-- `mean pooling` stabilizes prediction over all views;
-- train subfolders were collected at different times, so group-aware CV is more honest than random sample splitting.
+Датасет собран в несколько разных сессий съёмки. Если делать обычный случайный train/validation split, в train и validation могут попасть очень похожие примеры из одной и той же сессии.
 
----
+Чтобы оценка была честнее, используется:
+```text
+StratifiedGroupKFold
+```
+Группировка выполняется по source-директории съёмки.
 
-## Install
+Это позволяет проверять, насколько модель переносится на данные из другой сессии, а не просто запоминает особенности конкретного набора изображений.
 
-```bash
+## 5. Установка
+```text
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
 ```
-
-Put data into the project:
-
+Для Windows:
 ```text
-project_root/
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+pip install -e .
+```
+## 6. Подготовка данных
+
+Ожидаемая структура проекта:
+```text
+project/
   data/
     train/
-      BLTA_MCRL_.../
+      BLTA_.../
         good/
+          sample_x/
+            01_....jpg
+            02_....jpg
+            03_....jpg
+            04_....jpg
         bad/
+          sample_y/
+            01_....jpg
+            02_....jpg
+            03_....jpg
+            04_....jpg
+
     test/
       1/
+        01.jpg
+        02.jpg
+        03.jpg
+        04.jpg
       2/
-      ...
+        01.jpg
+        02.jpg
+        03.jpg
+        04.jpg
 ```
+Данные не добавляются в репозиторий.
 
-If you have archives:
+## 7. Обучение модели
 
-```bash
-mkdir -p data
-unzip train.zip -d data/train
-unzip test.zip -d data/test
-```
-
-If unzipping creates an extra nested folder, pass the real folder path to commands below.
-
----
-
-## Optional: inspect dataset structure
-
-```bash
-python scripts/inspect_dataset_structure.py \
-  --train data/train \
-  --test data/test \
-  --out-dir dataset_report
-```
-
-This creates:
-
+Основной запуск:
 ```text
-dataset_report/
-  dataset_structure_report.json
-  train_samples.csv
-  test_samples.csv
-```
-
----
-
-## 1. Main group-CV training
-
-Recommended command for this dataset:
-
-```bash
 python -m telleqt_defects.train_cv \
   --train-root data/train \
   --out-dir runs/effnet_b0_group_cv \
@@ -166,140 +177,239 @@ python -m telleqt_defects.train_cv \
   --image-size 384 \
   --views all
 ```
-
-Because there are four source collection groups, group CV uses four folds. This is similar to leave-one-acquisition-session-out validation.
-
-For a faster smoke test:
-
-```bash
-python -m telleqt_defects.train_cv \
-  --train-root data/train \
-  --out-dir runs/smoke \
-  --cv group \
-  --folds 4 \
-  --epochs 1 \
-  --batch-size 4 \
-  --image-size 224 \
-  --views all
-```
-
----
-
-## 2. Threshold strategy for industrial use
-
-Default mode selects threshold by best OOF F1:
-
-```bash
---threshold-strategy f1
-```
-
-For industrial defect detection, false negatives are usually more expensive than false positives: missing a defective package is worse than rejecting a good one. Therefore the project also supports high-recall threshold selection:
-
-```bash
-python -m telleqt_defects.train_cv \
-  --train-root data/train \
-  --out-dir runs/effnet_b0_high_recall \
-  --cv group \
-  --folds 4 \
-  --epochs 20 \
-  --batch-size 8 \
-  --image-size 384 \
-  --views all \
-  --threshold-strategy target_recall \
-  --target-recall 0.95
-```
-
-The run saves `threshold_report.csv` with several operating points:
-
-```text
-fixed_0.50
-best_f1
-target_recall_0.90
-target_recall_0.95
-target_recall_0.98
-```
-
-This makes the recall/FPR trade-off explicit.
-
----
-
-## 3. Outputs after training
-
-Training writes files into `--out-dir`:
-
+После обучения сохраняются:
 ```text
 runs/effnet_b0_group_cv/
   fold_0.pt
   fold_1.pt
   fold_2.pt
   fold_3.pt
-  dataset_summary.json
-  folds.csv
-  oof_predictions.csv
+  metrics.json
   threshold.txt
   threshold_report.csv
-  threshold_report.json
-  metrics.json
+  oof_predictions.csv
   confusion_matrix.png
   pr_curve.png
+  dataset_summary.json
+  folds.csv
 ```
+## 8. Генерация submission.csv
 
-`metrics.json` contains the required metrics:
-
-```json
-{
-  "threshold": 0.42,
-  "confusion_matrix_labels": ["good_0", "bad_1"],
-  "confusion_matrix": [[...], [...]],
-  "tn": 0,
-  "fp": 0,
-  "fn": 0,
-  "tp": 0,
-  "recall_bad": 0.0,
-  "false_positive_rate": 0.0,
-  "pr_auc": 0.0
-}
+После обучения итоговый CSV для test создаётся командой:
+```text
+python -m telleqt_defects.predict \
+  --test-root data/test \
+  --model-dir runs/effnet_b0_group_cv \
+  --out-csv submission.csv
 ```
+Результат:
+```text
+sample_id,prediction
+1,0
+2,0
+3,1
+```
+При inference используется ensemble по всем fold-моделям. Вероятности дефекта усредняются, после чего применяется выбранный threshold.
 
----
+## 9. Метрики на кросс-валидации
 
-## 4. Error analysis: false positives / false negatives
+Метрики рассчитаны на out-of-fold predictions.
 
-After training, save visual grids of mistakes:
+Использовались:
+```text
+CV splitter: StratifiedGroupKFold
+folds: 4
+views: 01, 02, 03, 04
+threshold strategy: best F1
+selected threshold: 0.02684641
+```
+Итоговые метрики:
+```text
+Метрика	Значение
+PR-AUC	0.9961
+Recall по bad	0.9802
+False Positive Rate	0.0399
+Accuracy	0.9695
+Precision по bad	0.9559
+F1	0.9679
+```
+Confusion matrix:
+```text
+                 pred_good   pred_bad
+true_good            385        16
+true_bad               7       347
+```
+Интерпретация:
 
-```bash
+из 354 дефектных примеров модель нашла 347;
+пропущено 7 дефектных примеров;
+из 401 хорошего примера ошибочно забраковано 16;
+recall по дефектам составил около 98%;
+false positive rate составил около 4%.
+
+Для задачи контроля качества такой operating point является полезным, потому что пропуск дефекта обычно дороже, чем лишняя отбраковка хорошего объекта.
+
+## 10. PR-кривая и AUC
+
+В рамках задания построена PR-кривая и рассчитан её AUC.
+
+Полученное значение:
+```text
+PR-AUC = 0.9961
+```
+Высокое значение PR-AUC показывает, что модель хорошо ранжирует дефектные примеры выше хороших.
+
+Файл с графиком:
+```text
+runs/effnet_b0_group_cv/pr_curve.png
+```
+## 11. Выбор threshold
+
+Дополнительно был рассчитан отчёт по разным operating points.
+
+Mode	Threshold	Recall bad	FPR	FN	FP
+fixed_0.50	0.5000	0.9435	0.0150	20	6
+target_recall_0.95	0.3468	0.9520	0.0200	17	8
+best_f1	0.0268	0.9802	0.0399	7	16
+
+В итоговом решении используется threshold, выбранный по out-of-fold предсказаниям.
+
+Важно: фиксированный threshold 0.5 не всегда оптимален для нейросетевых моделей, особенно на небольших промышленных датасетах. Поэтому threshold подбирался на OOF-предсказаниях.
+
+
+## Что было сделано по требованиям ТЗ
+## 1. Построен пайплайн классификации good / bad
+
+Реализован полный пайплайн:
+```text
+загрузка датасета
+→ чтение 4 изображений одного sample
+→ обучение multi-view модели
+→ cross-validation
+→ подбор threshold
+→ inference на test
+→ генерация submission.csv
+```
+## 2. Назначены метки 0 / 1 для test
+
+Скрипт predict.py создаёт CSV-файл:
+```text
+sample_id,prediction
+```
+где:
+```text
+0 — good
+1 — bad
+```
+## 3. Подготовлен код для GitHub
+
+Код организован как Python-пакет:
+```text
+telleqt_defects/
+  data.py
+  model.py
+  train_cv.py
+  predict.py
+  metrics.py
+  error_analysis.py
+  run_ablation.py
+  gradcam.py
+```
+## 4. Подготовлен README
+
+README описывает:
+```text
+структуру данных;
+подход к решению;
+архитектуру модели;
+команды запуска;
+формат результата;
+метрики на кросс-валидации;
+дополнительные эксперименты.
+```
+## 5. Посчитаны требуемые метрики
+
+В рамках задания рассчитаны:
+```text
+confusion matrix;
+recall;
+false positive rate;
+PR curve;
+PR-AUC.
+```
+## Что было сделано сверх требований ТЗ
+## 1. Multi-view подход вместо классификации отдельных изображений
+
+Вместо обучения на отдельных картинках модель принимает решение на уровне всего примера из 4 изображений.
+
+Это важно, потому что дефект может быть заметен только:
+```text
+на передней стороне;
+на задней стороне;
+при barlight;
+при toplight;
+сразу на нескольких изображениях.
+```
+## 2. Group-aware cross-validation
+
+Для более честной оценки качества использован 
+```text
+StratifiedGroupKFold.
+```
+Модель валидируется не на случайно перемешанных изображениях, а с учётом групп съёмки. Это снижает риск переоценки качества из-за похожих условий внутри одной сессии.
+
+## 3. Подбор production-oriented threshold
+
+Кроме стандартного threshold 0.5, были рассчитаны разные operating points.
+
+Это позволяет выбрать режим под задачу производства:
+```text
+меньше false positives;
+или выше recall по дефектам.
+```
+Для контроля качества особенно важен высокий recall, так как пропуск дефекта обычно дороже лишней отбраковки хорошего пакета.
+
+## 4. Fold ensemble на inference
+
+Для test-предсказаний используется ансамбль моделей, обученных на разных fold-ах.
+
+Это делает итоговые предсказания стабильнее, чем использование одной модели.
+
+## 5. Error analysis
+
+Добавлен отдельный скрипт для анализа ошибок:
+```text
 python -m telleqt_defects.error_analysis \
   --train-root data/train \
   --run-dir runs/effnet_b0_group_cv \
   --views all \
   --max-per-type 50
 ```
-
-Output:
-
+Он сохраняет:
 ```text
-runs/effnet_b0_group_cv/errors/
-  error_report.csv
-  error_summary.csv
-  false_positives/
-    <sample>.jpg
-  false_negatives/
-    <sample>.jpg
+false positives
+false negatives
+error_report.csv
+error_summary.csv
 ```
+Это позволяет вручную посмотреть, какие дефекты модель пропускает и какие хорошие примеры похожи на bad.
 
-Why this is useful:
+## 6. Ablation study по видам изображений
 
-- false negatives show which defects the model misses;
-- false positives show which good packages look defect-like;
-- this is a production-oriented diagnostic step, not just a leaderboard trick.
-
----
-
-## 5. View ablation study
-
-The code can train the same pipeline on different view subsets:
-
-```bash
+Добавлен скрипт для сравнения качества на разных наборах изображений:
+```text
+только 01
+только 02
+только 03
+только 04
+только front
+только back
+только barlight
+только toplight
+все 4 вида
+```
+Запуск:
+```text
 python -m telleqt_defects.run_ablation \
   --train-root data/train \
   --out-dir runs/ablation \
@@ -309,106 +419,38 @@ python -m telleqt_defects.run_ablation \
   --batch-size 8 \
   --image-size 384
 ```
+Это помогает понять, какие стороны пакета и какие условия освещения наиболее информативны для поиска дефектов.
 
-Experiments included:
+## 7. Grad-CAM / explainability
 
-| Experiment | Views |
-|---|---|
-| `01_front_barlight` | `01` |
-| `02_front_toplight` | `02` |
-| `03_back_barlight` | `03` |
-| `04_back_toplight` | `04` |
-| `front_01_02` | `01,02` |
-| `back_03_04` | `03,04` |
-| `barlight_01_03` | `01,03` |
-| `toplight_02_04` | `02,04` |
-| `all_01_02_03_04` | `01,02,03,04` |
+Добавлена возможность построить Grad-CAM heatmap для визуальной проверки того, куда смотрит модель.
 
-Summary is saved to:
-
+Пример запуска:
 ```text
-runs/ablation/ablation_summary.csv
-```
-
-For a shorter ablation run:
-
-```bash
-python -m telleqt_defects.run_ablation \
-  --train-root data/train \
-  --out-dir runs/ablation_short \
-  --epochs 8 \
-  --only front_01_02,back_03_04,all_01_02_03_04
-```
-
-This helps answer an important industrial question: which camera side and lighting condition actually carry the defect signal.
-
----
-
-## 6. Optional Grad-CAM explanations
-
-Generate heatmaps for confident bad samples:
-
-```bash
 python -m telleqt_defects.gradcam \
   --train-root data/train \
   --model-dir runs/effnet_b0_group_cv \
   --from-oof confident_bad \
   --top-k 8
 ```
+Это полезно для sanity check: модель должна смотреть на область шва или визуальные признаки дефекта, а не на случайные элементы фона.
 
-Generate heatmaps for false negatives:
+## Основной вывод
 
-```bash
-python -m telleqt_defects.gradcam \
-  --train-root data/train \
-  --model-dir runs/effnet_b0_group_cv \
-  --from-oof false_negative \
-  --top-k 8
-```
-
-Output:
-
+Решение показывает высокое качество на out-of-fold валидации:
 ```text
-runs/effnet_b0_group_cv/gradcam/
-  <sample>.jpg
+PR-AUC: 0.9961
+Recall bad: 0.9802
+False Positive Rate: 0.0399
 ```
+Модель пропустила только 7 дефектных примеров из 354 и ошибочно забраковала 16 хороших примеров из 401.
 
-The goal is not to claim perfect explainability, but to sanity-check that the model looks at meaningful package/seam areas rather than only background artifacts.
-
----
-
-## 7. Create final submission CSV
-
-```bash
-python -m telleqt_defects.predict \
-  --test-root data/test \
-  --model-dir runs/effnet_b0_group_cv \
-  --out-csv submission.csv \
-  --batch-size 8
+Итоговый пайплайн ориентирован не только на получение метрик, но и на промышленное использование:
+```text
+учитываются все 4 изображения объекта;
+используется group-aware validation;
+threshold подбирается на OOF-предсказаниях;
+есть режим высокого recall;
+сохраняются ошибки для визуального анализа;
+добавлены ablation study и Grad-CAM для интерпретации результата.
 ```
-
-The script uses all `fold_*.pt` checkpoints and averages probabilities. The result format is exactly:
-
-```csv
-sample_id,prediction
-1,0
-2,0
-3,1
-```
-
-For high-recall submission, use the high-recall run directory:
-
-```bash
-python -m telleqt_defects.predict \
-  --test-root data/test \
-  --model-dir runs/effnet_b0_high_recall \
-  --out-csv submission_high_recall.csv
-```
-
----
-
-## Suggested report wording
-
-The task was treated as a multi-view binary classification problem. Each physical package sample contains four synchronized views: front/back sides captured under two lighting conditions. Since the defect can be visible only on one side or under one lighting setup, the model processes all four images jointly.
-
-The pipeline uses a shared CNN encoder for all views and aggregates view-level features using mean and max pooling. Cross-validation is performed with grouped splits by acquisition session to reduce leakage between train and validation. The decision threshold is selected on out-of-fold predictions, with an additional high-recall operating point suitable for industrial defect detection, where false negatives are more expensive than false positives.
