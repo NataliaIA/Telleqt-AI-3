@@ -436,6 +436,176 @@ python -m telleqt_defects.gradcam \
 Это полезно для sanity check: модель должна смотреть на область шва или визуальные признаки дефекта, а не на случайные элементы фона.
 
 ## Выводы по резултатам
+- [CSV файл с предсказаниями](https://github.com/NataliaIA/Telleqt-AI-3/blob/main/src/submission.csv)
+- [Метрики cross-validation: recall, false positive rate, PR-AUC](https://github.com/NataliaIA/Telleqt-AI-3/blob/main/src/runs/effnet_b0_group_cv/metrics.json)
+- [Threshold report / operating points](https://github.com/NataliaIA/Telleqt-AI-3/blob/main/src/runs/effnet_b0_group_cv/threshold_report.csv)
+- [Confusion matrix](https://github.com/NataliaIA/Telleqt-AI-3/blob/main/src/runs/effnet_b0_group_cv/confusion_matrix.png)
+- [PR curve](https://github.com/NataliaIA/Telleqt-AI-3/blob/main/src/runs/effnet_b0_group_cv/pr_curve.png)
+- [OOF predictions](https://github.com/NataliaIA/Telleqt-AI-3/blob/main/src/runs/effnet_b0_group_cv/oof_predictions.csv)
+- [Dataset summary](https://github.com/NataliaIA/Telleqt-AI-3/blob/main/src/runs/effnet_b0_group_cv/dataset_summary.json)
+- [Ablation study summary](https://github.com/NataliaIA/Telleqt-AI-3/blob/main/src/runs/ablation/ablation_summary.csv)
 
+## Confusion matrix
 
+![Confusion matrix](src/runs/effnet_b0_group_cv/confusion_matrix.png)
 
+## PR curve
+
+![PR curve](src/runs/effnet_b0_group_cv/pr_curve.png)
+
+## Если к этому моменту вам все еще интересно, то вот расширенные выводы по обучению и доработкам
+
+По результатам ablation видно, что самым информативным оказался barlight-свет, то есть комбинация:
+```text
+01 front_barlight + 03 back_barlight
+```
+Она дала лучший PR-AUC = 0.9919 и самый низкий false positive rate = 1.75%.
+
+При этом toplight-свет дал самый высокий recall:
+```text
+02 front_toplight + 04 back_toplight
+recall_bad = 96.0%
+```
+То есть barlight лучше отделяет good от bad в целом, а toplight помогает находить больше дефектов, но ценой большего числа ложных срабатываний.
+
+## Что еще можно сделать, но не в рамках тестового задания
+
+1. обучить ту же модель с разными seed и усреднить предсказания.
+
+Например:
+```text
+python -m telleqt_defects.train_cv --train-root data/train --out-dir runs/effnet_b0_seed_42 --cv group --folds 4 --epochs 20 --batch-size 8 --image-size 384 --views all --seed 42
+
+python -m telleqt_defects.train_cv --train-root data/train --out-dir runs/effnet_b0_seed_123 --cv group --folds 4 --epochs 20 --batch-size 8 --image-size 384 --views all --seed 123
+
+python -m telleqt_defects.train_cv --train-root data/train --out-dir runs/effnet_b0_seed_777 --cv group --folds 4 --epochs 20 --batch-size 8 --image-size 384 --views all --seed 777
+```
+Потом сделать усреднение вероятностей трёх запусков. Это обычно даёт самый безопасный прирост без усложнения логики.
+
+2. Ensemble all views + barlight
+
+По ablation barlight_01_03 выглядел очень сильным: он давал самый чистый сигнал и низкий FPR.
+
+Я бы попробовала обучить отдельно модель только на:
+```text
+01 front_barlight
+03 back_barlight
+```
+Команда:
+```text
+python -m telleqt_defects.train_cv \
+  --train-root data/train \
+  --out-dir runs/effnet_b0_barlight \
+  --cv group \
+  --folds 4 \
+  --epochs 20 \
+  --batch-size 8 \
+  --image-size 384 \
+  --views barlight
+```
+А потом для test усреднить:
+```text
+final_prob = 0.7 * prob_all_views + 0.3 * prob_barlight
+```
+all_views лучше ловит максимум дефектов, а barlight может стабилизировать решение и уменьшить ложные срабатывания.
+
+3. Test-time augmentation
+
+Для inference можно добавить TTA:
+```text
+original image
+horizontal flip
+slightly brighter/darker version
+```
+И усреднять вероятности.
+
+Я бы не делала сильные повороты, потому что промышленное изображение имеет фиксированную ориентацию. Но horizontal flip и лёгкие brightness/contrast обычно безопасны.
+
+Пример идеи:
+```text
+prob = mean([
+  model(original),
+  model(horizontal_flip),
+  model(brightness +5%),
+  model(contrast +5%)
+])
+```
+Это часто даёт небольшой, но стабильный прирост.
+
+4. Попробовать большее разрешение
+
+Сейчас image_size=384. Для дефектов шва мелкие детали могут быть важны.
+
+Я бы попробовала:
+```text
+--image-size 512
+```
+Например:
+```text
+python -m telleqt_defects.train_cv \
+  --train-root data/train \
+  --out-dir runs/effnet_b0_512 \
+  --cv group \
+  --folds 4 \
+  --epochs 20 \
+  --batch-size 4 \
+  --image-size 512 \
+  --views all
+```
+Минус: обучение будет медленнее, batch size придётся уменьшить.
+Плюс: модель может лучше увидеть мелкие дефекты.
+
+5. Попробовать ConvNeXt-Tiny
+
+EfficientNet-B0 — хороший baseline. Но можно попробовать вторую архитектуру и потом сделать ensemble.
+
+Например:
+```text
+EfficientNet-B0
+ConvNeXt-Tiny
+```
+ConvNeXt часто хорошо работает на industrial vision. Даже если отдельно он будет не лучше, в ансамбле может дать прирост за счёт других ошибок.
+
+6. Сделать crop/ROI вокруг шва
+
+Это может сильно помочь, если дефект шва находится в предсказуемой области изображения.
+
+```text
+full image branch
++
+crop шва / верхней или боковой зоны
+```
+То есть модель видит не только весь пакет, но и увеличенный фрагмент области, где чаще бывает дефект.
+
+Варианты:
+```text
+1. обучить отдельную модель на центральном/верхнем/боковом crop
+2. сделать ensemble full image + crop model
+3. использовать high-res crop при image_size 512/640
+```
+Это может дать прирост именно на сложных FN, где дефект мелкий.
+
+7. Проверить false negatives руками
+
+Всего 7 FN на OOF. Их надо обязательно открыть.
+
+Вопросы:
+```text
+1. дефект реально есть или это спорная разметка?
+2. дефект виден только на одном из 4 видов?
+3. дефект очень мелкий?
+4. модель смотрит не туда?
+5. это конкретная группа съёмки?
+```
+Если окажется, что FN — это очень мелкие дефекты, тогда надо повышать resolution/crop.
+Если FN спорные или похожи на good, значит метрика уже почти у потолка.
+
+8. Не гнаться только за PR-AUC
+
+PR-AUC уже почти идеальный. Для итогового submission.csv важнее правильный threshold.
+
+Есть несколько operating points:
+
+threshold 0.5      → меньше FP, но больше FN
+threshold 0.0268   → высокий recall, меньше пропусков дефектов
+threshold 0.3468   → компромисс
