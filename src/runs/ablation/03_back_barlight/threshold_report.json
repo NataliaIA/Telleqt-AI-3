@@ -1,0 +1,59 @@
+{
+  "operating_points": [
+    {
+      "mode": "fixed_0.50",
+      "threshold": 0.5,
+      "tn": 386,
+      "fp": 15,
+      "fn": 32,
+      "tp": 322,
+      "recall_bad": 0.9096045197740112,
+      "false_positive_rate": 0.03740648379052369,
+      "pr_auc": 0.980527258007477
+    },
+    {
+      "mode": "best_f1",
+      "threshold": 0.2747220631638614,
+      "tn": 375,
+      "fp": 26,
+      "fn": 22,
+      "tp": 332,
+      "recall_bad": 0.9378531073446328,
+      "false_positive_rate": 0.06483790523690773,
+      "pr_auc": 0.980527258007477
+    },
+    {
+      "mode": "target_recall_0.90",
+      "threshold": 0.5129546673857263,
+      "tn": 387,
+      "fp": 14,
+      "fn": 34,
+      "tp": 320,
+      "recall_bad": 0.903954802259887,
+      "false_positive_rate": 0.034912718204488775,
+      "pr_auc": 0.980527258007477
+    },
+    {
+      "mode": "target_recall_0.95",
+      "threshold": 0.14996536875982422,
+      "tn": 355,
+      "fp": 46,
+      "fn": 17,
+      "tp": 337,
+      "recall_bad": 0.9519774011299436,
+      "false_positive_rate": 0.11471321695760599,
+      "pr_auc": 0.980527258007477
+    },
+    {
+      "mode": "target_recall_0.98",
+      "threshold": 0.014156905031676778,
+      "tn": 252,
+      "fp": 149,
+      "fn": 7,
+      "tp": 347,
+      "recall_bad": 0.980225988700565,
+      "false_positive_rate": 0.371571072319202,
+      "pr_auc": 0.980527258007477
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+threshold,selected_views,selected_view_descriptions,false_positives,false_negatives,saved_false_positive_grids,saved_false_negative_grids
+0.02684641,"['01', '02', '03', '04']","{'01': 'front_barlight', '02': 'front_toplight', '03': 'back_barlight', '04': 'back_toplight'}",16,8,16,8

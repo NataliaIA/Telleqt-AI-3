@@ -1,0 +1,33 @@
+{
+  "threshold": 0.4738062266611174,
+  "confusion_matrix_labels": [
+    "good_0",
+    "bad_1"
+  ],
+  "confusion_matrix": [
+    [
+      364,
+      37
+    ],
+    [
+      47,
+      307
+    ]
+  ],
+  "tn": 364,
+  "fp": 37,
+  "fn": 47,
+  "tp": 307,
+  "recall_bad": 0.867231638418079,
+  "false_positive_rate": 0.09226932668329177,
+  "pr_auc": 0.9499102848007347,
+  "cv_splitter": "StratifiedGroupKFold",
+  "folds": 4,
+  "threshold_strategy": "f1",
+  "selected_views": [
+    "02"
+  ],
+  "selected_view_descriptions": {
+    "02": "front_toplight"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "total_samples": 755,
+  "label_counts": {
+    "good_0": 401,
+    "bad_1": 354
+  },
+  "image_count_distribution": {
+    "4": 755
+  },
+  "source_groups": {
+    "BLTA_MCRL_2026_04_30T05_05_58_996428Z_CTS": {
+      "total": 260,
+      "good_0": 140,
+      "bad_1": 120
+    },
+    "BLTA_MCRL_2026_04_30T07_37_27_078598Z_CTS": {
+      "total": 295,
+      "good_0": 140,
+      "bad_1": 155
+    },
+    "BLTA_MCRL_2026_04_30T08_21_20_731966Z_SCP": {
+      "total": 82,
+      "good_0": 41,
+      "bad_1": 41
+    },
+    "BLTA_MCRL_2026_05_04T07_01_54_620335Z_SCP": {
+      "total": 118,
+      "good_0": 80,
+      "bad_1": 38
+    }
+  },
+  "selected_views": [
+    "04"
+  ],
+  "selected_view_descriptions": {
+    "04": "back_toplight"
+  },
+  "max_views": 1
+}
